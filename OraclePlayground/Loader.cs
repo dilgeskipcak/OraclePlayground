@@ -18,35 +18,49 @@ namespace OraclePlayground
             OracleConnection con = new OracleConnection(connString);
             con.Open();
             OracleCommand cmd = con.CreateCommand();
-            string input = ConvertToXml(data);
-            string insertQuery = GenerateQuery(QueryType.Insert, data);
+            cmd.CommandText = @"ALTER SESSION 
+                                SET NLS_TIMESTAMP_FORMAT = 'DD-MM-YYYY HH24:MI:SS.FF'
+                                NLS_DATE_FORMAT = 'yyyy-MM-dd HH24:MI:SS'
+                                ";
+            cmd.ExecuteNonQuery();
+            string insertQuery = GenerateQuery(QueryType.Merge, data);
+            cmd.Parameters.Add(":input", OracleDbType.Clob, ConvertToXml(data), ParameterDirection.Input);
             cmd.CommandText = insertQuery;
-            cmd.Parameters.Add(":input",OracleDbType.Varchar2, input,ParameterDirection.Input);
-            OracleDataReader reader = cmd.ExecuteReader();
-            reader.Read();
-            Console.WriteLine(reader.GetString(0));
+            cmd.Transaction = con.BeginTransaction();
+            try
+            {
+
+                cmd.ExecuteNonQuery();
+                cmd.Transaction.Commit();
+            }
+            catch (Exception)
+            {
+                cmd.Transaction.Rollback();
+                throw;
+            }
 
         }
 
         private static string ConvertToXml(DataTable data)
         {
-            StringWriter writer = new StringWriter();
+            TextWriter writer = new StringWriter();
             data.WriteXml(writer);
-            return writer.ToString();
+            data.Dispose();
+            GC.Collect();
+            return writer.ToString().Replace("'", "''") ;
         }
 
         private static string GenerateQuery(QueryType queryType, DataTable data)
         {
             List<string> columns = new List<string>();
-            List<string> pkColumns = new List<string>();
+            List<string> pkColumns = new List<string>() { "ADDRESSLINE1", "CITY", "MODIFIEDDATE" };
             string schemaName = "AT", tableName = data.TableName;
             foreach (DataColumn item in data.Columns)
                 columns.Add(item.ColumnName);
-
-            string xmlToColumns = string.Join(',', columns.Select(name => $"EXTRACTVALUE(VALUE(a), '/{tableName}/{name}') AS {name}, \n"));
-            string targetSourceAssignToColumns = string.Join(',', columns.Select(name => $"targetTable.{name} = sourceTable.{name}, \n"));
+            string xmlToColumns = string.Join(',', columns.Select(name => $"EXTRACTVALUE(VALUE(a), '/{tableName}/{name}') AS {name} \n"));
+            string targetSourceAssignToColumns = string.Join(',', columns.Where(c => !pkColumns.Contains(c.ToUpper())).Select(name => $"targetTable.{name} = sourceTable.{name} \n"));
             string sourceAssignToColumns = string.Join(',', columns.Select(name => $"sourceTable.{name}"));
-            string mergeCondition = string.Join(" AND", pkColumns.Select(name => $"targetTable.{name} = sourceTable.{name} \n"));
+            string mergeCondition = string.Join(" AND ", pkColumns.Select(name => $"targetTable.{name} = sourceTable.{name}"));
             string result = string.Empty;
             if (queryType == QueryType.Merge)
             {
@@ -70,15 +84,13 @@ namespace OraclePlayground
                          FOR sourceTable IN (SELECT {xmlToColumns}
                                        FROM TABLE(XMLSEQUENCE(EXTRACT(v_xml, '/DocumentElement/{tableName}'))) a) 
                             LOOP
-                                INSERT INTO Address ({string.Join(',', columns)})
+                                INSERT INTO {schemaName}.{tableName} ({string.Join(',', columns)})
                                 VALUES ({sourceAssignToColumns});
                             END LOOP;
                          ";
 
             }
-            return $@"ALTER SESSION 
-                            SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF'
-                            NLS_DATE_FORMAT = 'yyyy-MM-dd HH24:MI:SS';
+            return $@"
                             DECLARE
                             v_xml XMLTYPE;
                             BEGIN

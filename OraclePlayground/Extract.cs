@@ -13,17 +13,19 @@ namespace OraclePlayground
     internal static class Extract
     {
 
-        public static DataTable GetData(int take = 10)
+        public static DataTable GetData(int take = 1000)
         {
             DbContextOptionsBuilder<AdventureWorks> contextBuilder = BuildContext();
             using var db = new AdventureWorks(contextBuilder.Options);
-            var addresses = db.Addresses.AsNoTracking().Take(take).ToList();
+            var addresses = db.Addresses.AsNoTracking().ToList();
             DataTable result = new DataTable();
             result.Columns.Add(nameof(Address.City));
             result.Columns.Add(nameof(Address.CountryRegion));
             result.Columns.Add(nameof(Address.PostalCode));
             result.Columns.Add(nameof(Address.AddressLine1));
             result.Columns.Add(nameof(Address.AddressLine2));
+            result.Columns.Add(nameof(Address.ModifiedDate));
+            for (int i = 0; i < 1; i++)
             foreach (var address in addresses)
             {
                 var row = result.NewRow();
@@ -31,7 +33,10 @@ namespace OraclePlayground
                 row[nameof(Address.CountryRegion)] = address.CountryRegion;
                 row[nameof(Address.PostalCode)] = address.PostalCode;
                 row[nameof(Address.AddressLine1)] = address.AddressLine1;
-                row[nameof(Address.AddressLine2)] = address.AddressLine2;
+                    row[nameof(Address.AddressLine2)] = "Ä Ö Ü ẞ ß ü ö ä ";//address.AddressLine2;
+                row[nameof(Address.ModifiedDate)] = address.ModifiedDate;
+
+
                 result.Rows.Add(row);
             }
             return result;
